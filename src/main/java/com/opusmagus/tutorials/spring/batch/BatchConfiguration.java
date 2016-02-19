@@ -27,63 +27,64 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @EnableBatchProcessing
 public class BatchConfiguration {
 
-    // tag::readerwriterprocessor[]
-    @Bean
-    public ItemReader<Person> reader() {
-        FlatFileItemReader<Person> reader = new FlatFileItemReader<Person>();
-        reader.setResource(new ClassPathResource("sample-data.csv"));
-        reader.setLineMapper(new DefaultLineMapper<Person>() {{
-            setLineTokenizer(new DelimitedLineTokenizer() {{
-                setNames(new String[] { "firstName", "lastName" });
-            }});
-            setFieldSetMapper(new BeanWrapperFieldSetMapper<Person>() {{
-                setTargetType(Person.class);
-            }});
-        }});
-        return reader;
-    }
+	// tag::readerwriterprocessor[]
+	@Bean
+	public ItemReader<Person> reader() {
+		FlatFileItemReader<Person> reader = new FlatFileItemReader<Person>();
+		reader.setResource(new ClassPathResource("sample-data.csv"));
+		reader.setLineMapper(new DefaultLineMapper<Person>() {
+			{
+				setLineTokenizer(new DelimitedLineTokenizer() {
+					{
+						setNames(new String[] { "firstName", "lastName" });
+					}
+				});
+				setFieldSetMapper(new BeanWrapperFieldSetMapper<Person>() {
+					{
+						setTargetType(Person.class);
+					}
+				});
+			}
+		});
+		return reader;
+	}
 
-    @Bean
-    public ItemProcessor<Person, Person> processor() {
-        return new PersonItemProcessor();
-    }
+	@Bean
+	public ItemProcessor<Person, Person> processor() {
+		return new PersonItemProcessor();
+	}
 
-    @Bean
-    public ItemWriter<Person> writer(DataSource dataSource) {
-        JdbcBatchItemWriter<Person> writer = new JdbcBatchItemWriter<Person>();
-        writer.setItemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<Person>());
-        writer.setSql("INSERT INTO people (first_name, last_name) VALUES (:firstName, :lastName)");
-        writer.setDataSource(dataSource);
-        return writer;
-    }
-    // end::readerwriterprocessor[]
+	private boolean isFirstCall = true;
 
-    // tag::jobstep[]
-    @Bean
-    public Job importUserJob(JobBuilderFactory jobs, Step s1, JobExecutionListener listener) {
-        return jobs.get("importUserJob")
-                .incrementer(new RunIdIncrementer())
-                .listener(listener)
-                .flow(s1)
-                .end()
-                .build();
-    }
+	@Bean
+	public ItemWriter<Person> writer(DataSource dataSource) {
+		if (isFirstCall) {
+			jdbcTemplate(dataSource).execute("create table people ( first_name varchar(200), last_name varchar(200) )");
+			isFirstCall = false;
+		}
+		JdbcBatchItemWriter<Person> writer = new JdbcBatchItemWriter<Person>();
+		writer.setItemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<Person>());
+		writer.setSql("INSERT INTO people (first_name, last_name) VALUES (:firstName, :lastName)");
+		writer.setDataSource(dataSource);
+		return writer;
+	}
+	// end::readerwriterprocessor[]
 
-    @Bean
-    public Step step1(StepBuilderFactory stepBuilderFactory, ItemReader<Person> reader,
-            ItemWriter<Person> writer, ItemProcessor<Person, Person> processor) {
-        return stepBuilderFactory.get("step1")
-                .<Person, Person> chunk(10)
-                .reader(reader)
-                .processor(processor)
-                .writer(writer)
-                .build();
-    }
-    // end::jobstep[]
+	// tag::jobstep[]
+	@Bean
+	public Job importUserJob(JobBuilderFactory jobs, Step s1, JobExecutionListener listener) {
+		return jobs.get("importUserJob").incrementer(new RunIdIncrementer()).listener(listener).flow(s1).end().build();
+	}
 
-    @Bean
-    public JdbcTemplate jdbcTemplate(DataSource dataSource) {
-        return new JdbcTemplate(dataSource);
-    }
+	@Bean
+	public Step step1(StepBuilderFactory stepBuilderFactory, ItemReader<Person> reader, ItemWriter<Person> writer, ItemProcessor<Person, Person> processor) {
+		return stepBuilderFactory.get("step1").<Person, Person> chunk(10).reader(reader).processor(processor).writer(writer).build();
+	}
+	// end::jobstep[]
+
+	@Bean
+	public JdbcTemplate jdbcTemplate(DataSource dataSource) {
+		return new JdbcTemplate(dataSource);
+	}
 
 }
